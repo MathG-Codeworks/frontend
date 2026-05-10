@@ -10,7 +10,10 @@ import {
   Sword,
   User,
 } from 'lucide-react'
+import { useNavigate } from '@tanstack/react-router'
 import { type FormEventHandler, useEffect, useState } from 'react'
+import { buildApiUrl } from '#/lib/api'
+import { setAuthFlashMessage } from '#/lib/auth'
 
 export const Route = createFileRoute('/register')({
   head: () => ({
@@ -35,11 +38,13 @@ type RegisterForm = {
 }
 
 function Register() {
+  const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
   const [showPasswordConfirmation, setShowPasswordConfirmation] = useState(false)
   const [isTouchDevice, setIsTouchDevice] = useState(false)
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
   const [processing, setProcessing] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
   const [formData, setFormData] = useState<RegisterForm>({
     name: '',
     email: '',
@@ -67,13 +72,62 @@ function Register() {
     }
   }, [isTouchDevice])
 
-  const submit: FormEventHandler<HTMLFormElement> = (event) => {
+  const getErrorMessageFromResponse = (responseBody: unknown) => {
+    if (!responseBody || typeof responseBody !== 'object') {
+      return null
+    }
+
+    const message = (responseBody as { message?: unknown }).message
+
+    if (typeof message === 'string') {
+      return message
+    }
+
+    if (Array.isArray(message) && typeof message[0] === 'string') {
+      return message[0]
+    }
+
+    return null
+  }
+
+  const submit: FormEventHandler<HTMLFormElement> = async (event) => {
     event.preventDefault()
     setProcessing(true)
+    setErrorMessage('')
 
-    window.setTimeout(() => {
+    if (formData.password !== formData.passwordConfirmation) {
+      setErrorMessage('La confirmación de contraseña no coincide')
       setProcessing(false)
-    }, 900)
+      return
+    }
+
+    try {
+      const response = await fetch(buildApiUrl('auth/register'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username: formData.name,
+          email: formData.email,
+          password: formData.password,
+        }),
+      })
+
+      const responseBody = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        const apiMessage = getErrorMessageFromResponse(responseBody)
+        throw new Error(apiMessage ?? 'No se pudo registrar la cuenta')
+      }
+
+      setAuthFlashMessage('Tu cuenta se ha creado correctamente. Ahora puedes iniciar sesión.')
+      navigate({ to: '/login', replace: true })
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'No se pudo registrar la cuenta')
+    } finally {
+      setProcessing(false)
+    }
   }
 
   return (
@@ -215,6 +269,12 @@ function Register() {
                   </>
                 )}
               </button>
+
+              {errorMessage ? (
+                <p className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm font-medium text-rose-100">
+                  {errorMessage}
+                </p>
+              ) : null}
 
               <div className="text-center">
                 <p className="mb-2 text-sm uppercase tracking-[0.28em] text-fuchsia-100/70">¿Ya tienes una cuenta?</p>

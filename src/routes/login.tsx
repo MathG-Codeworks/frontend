@@ -11,7 +11,10 @@ import {
   Sword,
   Swords,
 } from 'lucide-react'
+import { useNavigate } from '@tanstack/react-router'
 import { type FormEventHandler, useEffect, useState } from 'react'
+import { buildApiUrl } from '#/lib/api'
+import { consumeAuthFlashMessage, isAuthenticated, saveAuthTokens } from '#/lib/auth'
 
 export const Route = createFileRoute('/login')({
   head: () => ({
@@ -29,17 +32,33 @@ export const Route = createFileRoute('/login')({
 })
 
 function Login() {
+  const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
   const [isTouchDevice, setIsTouchDevice] = useState(false)
   const [processing, setProcessing] = useState(false)
+  const [checkingSession, setCheckingSession] = useState(true)
+  const [errorMessage, setErrorMessage] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
   const [formData, setFormData] = useState({
-    email: '',
+    usernameOrEmail: '',
     password: '',
     remember: false,
   })
 
   useEffect(() => {
+    if (isAuthenticated()) {
+      navigate({ to: '/dashboard', replace: true })
+      return
+    }
+
+    const flashMessage = consumeAuthFlashMessage()
+    if (flashMessage) {
+      setSuccessMessage(flashMessage)
+    }
+
+    setCheckingSession(false)
+
     const checkTouchDevice = () => {
       setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0)
     }
@@ -57,15 +76,72 @@ function Login() {
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
     }
-  }, [isTouchDevice])
+  }, [isTouchDevice, navigate])
 
-  const submit: FormEventHandler<HTMLFormElement> = (event) => {
+  const getErrorMessageFromResponse = (responseBody: unknown) => {
+    if (!responseBody || typeof responseBody !== 'object') {
+      return null
+    }
+
+    const message = (responseBody as { message?: unknown }).message
+
+    if (typeof message === 'string') {
+      return message
+    }
+
+    if (Array.isArray(message) && typeof message[0] === 'string') {
+      return message[0]
+    }
+
+    return null
+  }
+
+  const submit: FormEventHandler<HTMLFormElement> = async (event) => {
     event.preventDefault()
     setProcessing(true)
+    setErrorMessage('')
 
-    window.setTimeout(() => {
+    try {
+      const response = await fetch(buildApiUrl('auth/login'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          usernameOrEmail: formData.usernameOrEmail,
+          password: formData.password,
+        }),
+      })
+
+      const responseBody = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        const apiMessage = getErrorMessageFromResponse(responseBody)
+
+        throw new Error(apiMessage ?? 'No se pudo iniciar sesión')
+      }
+
+      saveAuthTokens({
+        accessToken: responseBody.accessToken,
+        refreshToken: responseBody.refreshToken,
+      })
+
+      navigate({ to: '/dashboard', replace: true })
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'No se pudo iniciar sesión')
+    } finally {
       setProcessing(false)
-    }, 900)
+    }
+  }
+
+  if (checkingSession) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,rgba(168,85,247,0.24),transparent_28%),linear-gradient(135deg,#1e1b4b_0%,#4c1d95_46%,#0f172a_100%)] text-white">
+        <div className="rounded-3xl border border-white/10 bg-white/10 px-6 py-4 text-sm font-semibold tracking-[0.22em] text-fuchsia-100/80 backdrop-blur-xl">
+          Verificando sesión...
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -107,15 +183,21 @@ function Login() {
 
           <div className="rounded-3xl border border-white/10 bg-white/10 px-4 py-8 shadow-2xl backdrop-blur-xl md:p-8">
             <form className="space-y-5" onSubmit={submit}>
+              {successMessage ? (
+                <p className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-100">
+                  {successMessage}
+                </p>
+              ) : null}
+
               <label className="block space-y-2">
-                <span className="text-lg font-semibold text-fuchsia-100">Correo Electrónico</span>
+                <span className="text-lg font-semibold text-fuchsia-100">Usuario o correo electrónico</span>
                 <input
-                  type="email"
+                  type="text"
                   required
                   autoFocus
-                  value={formData.email}
-                  onChange={(event) => setFormData((current) => ({ ...current, email: event.target.value }))}
-                  placeholder="correo@ejemplo.com"
+                  value={formData.usernameOrEmail}
+                  onChange={(event) => setFormData((current) => ({ ...current, usernameOrEmail: event.target.value }))}
+                  placeholder="usuario o correo@ejemplo.com"
                   className="h-12 w-full rounded-xl border border-fuchsia-300/40 bg-white/20 px-4 text-lg text-white placeholder:text-fuchsia-200/70 outline-none transition focus:border-fuchsia-300 focus:ring-2 focus:ring-fuchsia-400/40"
                 />
               </label>
@@ -169,6 +251,12 @@ function Login() {
                   </>
                 )}
               </button>
+
+                {errorMessage ? (
+                  <p className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm font-medium text-rose-100">
+                    {errorMessage}
+                  </p>
+                ) : null}
 
               <div className="text-center">
                 <p className="mb-2 text-sm uppercase tracking-[0.28em] text-fuchsia-100/70">

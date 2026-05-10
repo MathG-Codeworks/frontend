@@ -8,6 +8,7 @@ import tailwindcss from '@tailwindcss/vite'
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
+  envPrefix: ['VITE_', 'API_'],
   plugins: [devtools(), tailwindcss(), tanstackStart(), viteReact()],
 })
 
