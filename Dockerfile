@@ -5,6 +5,8 @@ RUN npm ci
 
 FROM base AS build
 COPY . .
+ARG VITE_API_URL
+ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 
 FROM base AS runner
